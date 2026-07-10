@@ -1,0 +1,18 @@
+package com.blogagency.smartnotes.ai.di
+
+import com.blogagency.smartnotes.ai.AiService
+import com.blogagency.smartnotes.ai.GeminiNanoAiService
+import dagger.Binds
+import dagger.Module
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class AiModule {
+
+    @Binds
+    @Singleton
+    abstract fun bindAiService(impl: GeminiNanoAiService): AiService
+}
