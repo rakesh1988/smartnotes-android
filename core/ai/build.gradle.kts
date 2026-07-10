@@ -14,19 +14,7 @@ android {
     }
 
     defaultConfig {
-        minSdk = 26
-
-        val localFile = rootProject.file("local.properties")
-        val geminiApiKey = if (localFile.exists()) {
-            localFile.readLines()
-                .firstOrNull { it.trim().startsWith("GEMINI_API_KEY=") }
-                ?.substringAfter("GEMINI_API_KEY=")
-                ?.trim()
-                .orEmpty()
-        } else {
-            ""
-        }.replace("\\", "\\\\").replace("\"", "\\\"")
-        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
+        minSdk = 31
     }
 
     compileOptions {
@@ -45,7 +33,7 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
 
-    implementation(libs.generative.ai)
+    implementation(libs.aicore)
 
     implementation(libs.kotlinx.coroutines.android)
 }

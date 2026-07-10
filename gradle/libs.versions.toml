@@ -9,8 +9,8 @@ activity-compose = "1.9.3"
 core-ktx = "1.15.0"
 lifecycle = "2.8.7"
 navigation-compose = "2.8.5"
-generative-ai = "0.9.0"
 coroutines = "1.9.0"
+aicore = "0.0.1-exp02"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -34,7 +34,8 @@ room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 
-generative-ai = { group = "com.google.ai.client.generativeai", name = "generativeai", version.ref = "generative-ai" }
+# On-device AI: Gemini Nano via Android AICore (no API key, model is system-managed)
+aicore = { group = "com.google.ai.edge.aicore", name = "aicore", version.ref = "aicore" }
 
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 

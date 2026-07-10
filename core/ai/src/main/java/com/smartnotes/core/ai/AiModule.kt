@@ -12,5 +12,5 @@ abstract class AiModule {
 
     @Binds
     @Singleton
-    abstract fun bindAiService(impl: GeminiNanoAiService): AiService
+    abstract fun bindAiService(impl: OnDeviceAiService): AiService
 }

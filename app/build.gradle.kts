@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.smartnotes.app"
-        minSdk = 26
+        minSdk = 31
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
@@ -33,12 +33,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
     }
 }
 
