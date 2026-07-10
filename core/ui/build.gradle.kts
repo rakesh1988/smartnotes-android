@@ -9,7 +9,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        minSdk = 36
+        minSdk = 26
     }
 
     compileOptions {
@@ -27,8 +27,10 @@ android {
 }
 
 dependencies {
-    implementation(platform(libs.compose.bom))
-    implementation(libs.compose.ui)
-    implementation(libs.compose.material3)
-    implementation(libs.compose.material.icons.extended)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.extended)
+    implementation(libs.androidx.ui.tooling.preview)
 }

@@ -1,7 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.hilt)
+    alias(libs.plugins.hilt.android)
     alias(libs.plugins.ksp)
 }
 
@@ -10,7 +10,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        minSdk = 36
+        minSdk = 26
     }
 
     compileOptions {
@@ -29,9 +29,7 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
 
-    implementation(libs.mlkit.ai.core)
-    implementation(libs.mlkit.ai.text)
-    implementation(libs.play.services.ai)
+    implementation(libs.generative.ai)
 
     implementation(libs.kotlinx.coroutines.android)
 }

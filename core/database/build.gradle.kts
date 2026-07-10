@@ -2,7 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
+    alias(libs.plugins.hilt.android)
 }
 
 android {
@@ -10,7 +10,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        minSdk = 36
+        minSdk = 26
     }
 
     compileOptions {

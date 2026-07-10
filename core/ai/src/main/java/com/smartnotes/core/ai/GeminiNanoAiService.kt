@@ -1,6 +1,7 @@
 package com.smartnotes.core.ai
 
-import kotlinx.coroutines.delay
+import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
@@ -9,43 +10,39 @@ import javax.inject.Singleton
 @Singleton
 class GeminiNanoAiService @Inject constructor() : AiService {
 
+    private val model = GenerativeModel(
+        modelName = "gemini-2.0-flash-lite",
+        apiKey = BUILD_CONFIG_API_KEY
+    )
+
     override fun summarize(text: String): Flow<AiResult> = flow {
-        val startTime = System.currentTimeMillis()
-        emit(AiResult(text = "", confidence = null, latencyMs = 0))
-        // TODO: Implement Gemini Nano inference
-        delay(100)
-        emit(
-            AiResult(
-                text = "- Summary point 1\n- Summary point 2\n- Summary point 3",
-                confidence = 0.85f,
-                latencyMs = System.currentTimeMillis() - startTime
-            )
-        )
+        val prompt = "Summarize the following note in 1-2 sentences:\n\n$text"
+        val response = model.generateContent(prompt)
+        val resultText = response.text?.trim() ?: ""
+        emit(AiResult(text = resultText, confidence = null, latencyMs = 0))
     }
 
     override fun generateTitle(text: String): Flow<AiResult> = flow {
-        val startTime = System.currentTimeMillis()
-        emit(AiResult(text = "", confidence = null, latencyMs = 0))
-        delay(50)
-        emit(
-            AiResult(
-                text = "Smart Note",
-                confidence = 0.75f,
-                latencyMs = System.currentTimeMillis() - startTime
-            )
-        )
+        val prompt = "Generate a concise title (max 8 words) for this note:\n\n$text"
+        val response = model.generateContent(prompt)
+        val resultText = response.text?.trim() ?: "Untitled"
+        emit(AiResult(text = resultText, confidence = null, latencyMs = 0))
     }
 
     override fun categorize(text: String): Flow<AiResult> = flow {
-        val startTime = System.currentTimeMillis()
-        emit(AiResult(text = "", confidence = null, latencyMs = 0))
-        delay(50)
-        emit(
-            AiResult(
-                text = "IDEA",
-                confidence = 0.9f,
-                latencyMs = System.currentTimeMillis() - startTime
-            )
-        )
+        val prompt = """
+            Categorize the following note into exactly one category:
+            IDEA, TODO, REFERENCE, JOURNAL, or OTHER.
+            Return only the category name, no additional text.
+            
+            $text
+        """.trimIndent()
+        val response = model.generateContent(prompt)
+        val resultText = response.text?.trim() ?: "OTHER"
+        emit(AiResult(text = resultText, confidence = null, latencyMs = 0))
+    }
+
+    companion object {
+        private const val BUILD_CONFIG_API_KEY = "YOUR_GEMINI_API_KEY"
     }
 }

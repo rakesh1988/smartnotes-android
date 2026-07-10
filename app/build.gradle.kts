@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.blogagency.smartnotes"
+    namespace = "com.smartnotes.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.blogagency.smartnotes"
+        applicationId = "com.smartnotes.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -43,6 +43,10 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:database"))
+    implementation(project(":core:ai"))
+    implementation(project(":core:ui"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -58,12 +62,6 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
-
-    implementation(libs.room.runtime)
-    implementation(libs.room.ktx)
-    ksp(libs.room.compiler)
-
-    implementation(libs.generative.ai)
 
     debugImplementation(libs.androidx.ui.tooling)
 }
