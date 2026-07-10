@@ -10,39 +10,50 @@ import javax.inject.Singleton
 @Singleton
 class GeminiNanoAiService @Inject constructor() : AiService {
 
-    private val model = GenerativeModel(
-        modelName = "gemini-2.0-flash-lite",
-        apiKey = BUILD_CONFIG_API_KEY
-    )
+    private val apiKey = BuildConfig.GEMINI_API_KEY
 
-    override fun summarize(text: String): Flow<AiResult> = flow {
-        val prompt = "Summarize the following note in 1-2 sentences:\n\n$text"
-        val response = model.generateContent(prompt)
-        val resultText = response.text?.trim() ?: ""
-        emit(AiResult(text = resultText, confidence = null, latencyMs = 0))
-    }
+    private val model: GenerativeModel? =
+        apiKey.takeIf { it.isNotBlank() && it != PLACEHOLDER }?.let {
+            GenerativeModel(modelName = "gemini-2.0-flash-lite", apiKey = it)
+        }
 
-    override fun generateTitle(text: String): Flow<AiResult> = flow {
-        val prompt = "Generate a concise title (max 8 words) for this note:\n\n$text"
-        val response = model.generateContent(prompt)
-        val resultText = response.text?.trim() ?: "Untitled"
-        emit(AiResult(text = resultText, confidence = null, latencyMs = 0))
-    }
+    override fun summarize(text: String): Flow<AiResult> =
+        generate("Summarize the following note in 1-2 sentences:\n\n$text")
 
-    override fun categorize(text: String): Flow<AiResult> = flow {
-        val prompt = """
+    override fun generateTitle(text: String): Flow<AiResult> =
+        generate(
+            "Generate a concise title (max 8 words) for this note:\n\n$text",
+            fallback = "Untitled"
+        )
+
+    override fun categorize(text: String): Flow<AiResult> = generate(
+        """
             Categorize the following note into exactly one category:
             IDEA, TODO, REFERENCE, JOURNAL, or OTHER.
             Return only the category name, no additional text.
-            
+
             $text
-        """.trimIndent()
-        val response = model.generateContent(prompt)
-        val resultText = response.text?.trim() ?: "OTHER"
-        emit(AiResult(text = resultText, confidence = null, latencyMs = 0))
+        """.trimIndent(),
+        fallback = "OTHER"
+    )
+
+    private fun generate(prompt: String, fallback: String = ""): Flow<AiResult> = flow {
+        val activeModel = model
+        if (activeModel == null) {
+            emit(AiResult(text = MISSING_KEY_MESSAGE))
+            return@flow
+        }
+        try {
+            val response = activeModel.generateContent(prompt)
+            emit(AiResult(text = response.text?.trim() ?: fallback))
+        } catch (e: Exception) {
+            emit(AiResult(text = "AI request failed: ${e.message ?: e.javaClass.simpleName}"))
+        }
     }
 
     companion object {
-        private const val BUILD_CONFIG_API_KEY = "YOUR_GEMINI_API_KEY"
+        private const val PLACEHOLDER = "YOUR_GEMINI_API_KEY"
+        private const val MISSING_KEY_MESSAGE =
+            "AI unavailable: set GEMINI_API_KEY in local.properties"
     }
 }

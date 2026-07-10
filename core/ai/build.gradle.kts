@@ -9,8 +9,24 @@ android {
     namespace = "com.smartnotes.core.ai"
     compileSdk = 35
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         minSdk = 26
+
+        val localFile = rootProject.file("local.properties")
+        val geminiApiKey = if (localFile.exists()) {
+            localFile.readLines()
+                .firstOrNull { it.trim().startsWith("GEMINI_API_KEY=") }
+                ?.substringAfter("GEMINI_API_KEY=")
+                ?.trim()
+                .orEmpty()
+        } else {
+            ""
+        }.replace("\\", "\\\\").replace("\"", "\\\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
     }
 
     compileOptions {
