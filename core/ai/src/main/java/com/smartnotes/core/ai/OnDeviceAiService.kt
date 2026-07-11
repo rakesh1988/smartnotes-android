@@ -1,69 +1,215 @@
 package com.smartnotes.core.ai
 
-import com.google.ai.edge.aicore.GenerativeAIException
-import com.google.ai.edge.aicore.GenerativeModel
-import com.google.ai.edge.aicore.generationConfig
-import kotlinx.coroutines.Dispatchers
+import android.content.Context
+import android.util.Log
+import com.google.mlkit.genai.common.DownloadCallback
+import com.google.mlkit.genai.common.DownloadStatus
+import com.google.mlkit.genai.common.FeatureStatus
+import com.google.mlkit.genai.common.GenAiException
+import com.google.mlkit.genai.common.StreamingCallback
+import com.google.mlkit.genai.prompt.Generation
+import com.google.mlkit.genai.prompt.GenerativeModel
+import com.google.mlkit.genai.summarization.Summarization
+import com.google.mlkit.genai.summarization.SummarizationRequest
+import com.google.mlkit.genai.summarization.Summarizer
+import com.google.mlkit.genai.summarization.SummarizerOptions
+import com.google.mlkit.genai.summarization.SummarizerOptions.InputType
+import com.google.mlkit.genai.summarization.SummarizerOptions.Language
+import com.google.mlkit.genai.summarization.SummarizerOptions.OutputType
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.suspendCancellableCoroutine
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+private const val TAG = "OnDeviceAiService"
 
 /**
- * On-device AI using Google's Gemini Nano through the Android AICore system
- * service (Google AI Edge SDK, `com.google.ai.edge.aicore`).
+ * On-device AI implementation using ML Kit's GenAI APIs — the official
+ * high-level interface to Gemini Nano via Android's AICore system service.
  *
- * Fully offline and keyless: the model is delivered and managed by Android
- * AICore (no API key, no network, no bundled model file). Requires a device
- * that ships AICore (e.g. Pixel 9+ or recent Samsung Galaxy) with the model
- * downloaded. Degrades gracefully with an explanatory message otherwise.
+ * Architecture:
+ *   SmartNotes → ML Kit GenAI APIs → AICore (system service) → Gemini Nano
+ *
+ * - Fully offline after feature download; no API key required
+ * - Model weights are shared system-wide by AICore (not bundled in the APK)
+ * - Requires API 26+ on a supported device (Pixel 9/10, Samsung S25/S26, etc.)
+ * - AICore enforces per-app inference quota and blocks background use
+ *
+ * Summarization uses the purpose-built [Summarizer] (fine-tuned LoRA adapter).
+ * Title generation and categorization use the ML Kit Prompt API ([GenerativeModel]).
  */
 @Singleton
-class OnDeviceAiService @Inject constructor() : AiService {
+class OnDeviceAiService @Inject constructor(
+    @ApplicationContext private val context: Context
+) : AiService {
 
-    private val model = GenerativeModel(
-        generationConfig {
-            temperature = 0.8f
-            topK = 40
-            maxOutputTokens = 256
-        }
+    // --- Summarization client (ML Kit feature-specific API, ListenableFuture-based) ---
+    private val summarizer: Summarizer = Summarization.getClient(
+        SummarizerOptions.builder(context)
+            .setInputType(InputType.ARTICLE)
+            .setOutputType(OutputType.THREE_BULLETS)
+            .setLanguage(Language.ENGLISH)
+            .setLongInputAutoTruncationEnabled(true) // auto-truncate at the 4000 token limit
+            .build()
     )
 
-    override fun summarize(text: String): Flow<AiResult> =
-        generate("Summarize the following note in 1-2 sentences:\n\n$text")
+    // --- Prompt API client (Kotlin coroutines suspend API) ---
+    private val generativeModel: GenerativeModel = Generation.getClient()
 
-    override fun generateTitle(text: String): Flow<AiResult> =
-        generate(
-            "Generate a concise title (max 8 words) for this note:\n\n$text",
-            fallback = "Untitled"
-        )
+    // ------------------------------------------------------------------
+    // summarize() — ML Kit Summarization API (streaming)
+    // ------------------------------------------------------------------
 
-    override fun categorize(text: String): Flow<AiResult> = generate(
-        "Categorize the following note into exactly one category: " +
-            "IDEA, TODO, REFERENCE, JOURNAL, or OTHER. " +
-            "Return only the category name, no additional text.\n\n$text",
-        fallback = "OTHER"
-    )
-
-    private fun generate(prompt: String, fallback: String = ""): Flow<AiResult> = flow {
+    override fun summarize(text: String): Flow<AiResult> = flow {
         val start = System.currentTimeMillis()
-        try {
-            val response = withContext(Dispatchers.IO) {
-                model.generateContent(prompt)
-            }
-            val text = response.text?.trim()?.takeIf { it.isNotBlank() } ?: fallback
-            emit(AiResult(text = text, latencyMs = System.currentTimeMillis() - start))
-        } catch (e: GenerativeAIException) {
-            emit(AiResult(text = unavailableMessage(e)))
+
+        val featureStatus = try {
+            summarizer.checkFeatureStatus().await() // ListenableFuture → coroutine
         } catch (e: Exception) {
-            emit(AiResult(text = "On-device AI failed: ${e.message ?: e.javaClass.simpleName}"))
+            emit(AiResult(isAvailable = false, errorMessage = "Could not check AI status: ${e.message}"))
+            return@flow
+        }
+
+        when (featureStatus) {
+            FeatureStatus.UNAVAILABLE -> {
+                emit(AiResult(
+                    isAvailable = false,
+                    errorMessage = "Gemini Nano is not supported on this device. " +
+                        "Supported devices include Pixel 9/10, Samsung Galaxy S25/S26, and select flagships."
+                ))
+                return@flow
+            }
+            FeatureStatus.DOWNLOADABLE -> {
+                try {
+                    downloadSummarizationFeature()
+                } catch (e: GenAiException) {
+                    emit(AiResult(errorMessage = "Feature download failed: ${e.message}"))
+                    return@flow
+                }
+            }
+            FeatureStatus.DOWNLOADING,
+            FeatureStatus.AVAILABLE -> { /* proceed to inference */ }
+        }
+
+        try {
+            var lastText = ""
+            // Streaming: onNewText delivers cumulative (not delta) text on each callback
+            summarizer.runInference(
+                SummarizationRequest.builder(text).build(),
+                StreamingCallback { cumulativeText -> lastText = cumulativeText }
+            ).await() // await ListenableFuture completion
+            emit(AiResult(text = lastText, latencyMs = System.currentTimeMillis() - start))
+        } catch (e: Exception) {
+            emit(AiResult(errorMessage = "Summarization failed: ${e.message}"))
         }
     }
 
-    private fun unavailableMessage(e: Exception): String =
-        "On-device AI (Gemini Nano via Android AICore) is unavailable on this device: " +
-            "${e.message ?: e.javaClass.simpleName}. Gemini Nano requires a device with the " +
-            "Android AICore system service (e.g. Pixel 9+ or recent Samsung Galaxy) and the " +
-            "model downloaded via Play Services."
+    // ------------------------------------------------------------------
+    // generateTitle() — ML Kit Prompt API (non-streaming, short output)
+    // ------------------------------------------------------------------
+
+    override fun generateTitle(text: String): Flow<AiResult> = promptFlow(
+        prompt = "Generate a concise title (maximum 8 words) for the following note. " +
+            "Return only the title text, no quotes or extra punctuation:\n\n$text",
+        fallback = "Untitled"
+    )
+
+    // ------------------------------------------------------------------
+    // categorize() — ML Kit Prompt API (non-streaming, 1 token output)
+    // ------------------------------------------------------------------
+
+    override fun categorize(text: String): Flow<AiResult> = promptFlow(
+        prompt = "Classify the following note into exactly one category: " +
+            "IDEA, TODO, REFERENCE, JOURNAL, or OTHER. " +
+            "Return only the single category word, nothing else:\n\n$text",
+        fallback = "OTHER"
+    )
+
+    // ------------------------------------------------------------------
+    // Shared Prompt API helper (suspend coroutines)
+    // ------------------------------------------------------------------
+
+    private fun promptFlow(prompt: String, fallback: String = ""): Flow<AiResult> = flow {
+        val start = System.currentTimeMillis()
+
+        // Prompt API: checkStatus() is a suspend fun returning @FeatureStatus Int
+        val featureStatus = try {
+            generativeModel.checkStatus()
+        } catch (e: Exception) {
+            emit(AiResult(isAvailable = false, errorMessage = "Could not check Prompt API status: ${e.message}"))
+            return@flow
+        }
+
+        when (featureStatus) {
+            FeatureStatus.UNAVAILABLE -> {
+                emit(AiResult(
+                    isAvailable = false,
+                    errorMessage = "Gemini Nano Prompt API is not available on this device."
+                ))
+                return@flow
+            }
+            FeatureStatus.DOWNLOADABLE -> {
+                // Prompt API: download() returns Flow<DownloadStatus>
+                try {
+                    generativeModel.download().collect { status ->
+                        when (status) {
+                            is DownloadStatus.DownloadStarted ->
+                                Log.d(TAG, "Prompt API download started: ${status.bytesToDownload} bytes")
+                            is DownloadStatus.DownloadProgress ->
+                                Log.d(TAG, "Prompt API downloaded: ${status.totalBytesDownloaded} bytes")
+                            DownloadStatus.DownloadCompleted ->
+                                Log.d(TAG, "Prompt API download complete")
+                            is DownloadStatus.DownloadFailed ->
+                                throw status.e
+                        }
+                    }
+                } catch (e: Exception) {
+                    emit(AiResult(errorMessage = "Prompt API download failed: ${e.message}"))
+                    return@flow
+                }
+            }
+            FeatureStatus.DOWNLOADING,
+            FeatureStatus.AVAILABLE -> { /* proceed */ }
+        }
+
+        try {
+            // Non-streaming: title (~8 tokens) and category (1 token) are short outputs.
+            // generateContent(String) is a suspend fun on GenerativeModel.
+            val response = generativeModel.generateContent(prompt)
+            val text = response.candidates.firstOrNull()?.text?.trim()?.takeIf { it.isNotBlank() } ?: fallback
+            emit(AiResult(text = text, latencyMs = System.currentTimeMillis() - start))
+        } catch (e: Exception) {
+            emit(AiResult(text = fallback, errorMessage = "Prompt inference failed: ${e.message}"))
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Summarizer download helper — converts DownloadCallback to coroutine suspend
+    // ------------------------------------------------------------------
+
+    private suspend fun downloadSummarizationFeature() = suspendCancellableCoroutine { cont ->
+        summarizer.downloadFeature(object : DownloadCallback {
+            override fun onDownloadStarted(bytesToDownload: Long) {
+                Log.d(TAG, "Summarization download started: $bytesToDownload bytes")
+            }
+            override fun onDownloadProgress(totalBytesDownloaded: Long) {}
+            override fun onDownloadCompleted() = cont.resume(Unit)
+            override fun onDownloadFailed(e: GenAiException) = cont.resumeWithException(e)
+        })
+    }
+
+    // ------------------------------------------------------------------
+    // Lifecycle — called from ViewModel.onCleared()
+    // ------------------------------------------------------------------
+
+    override fun close() {
+        summarizer.close()
+        generativeModel.close()
+    }
 }

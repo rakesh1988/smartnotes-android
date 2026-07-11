@@ -1,10 +1,10 @@
 package com.smartnotes.app
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.*
@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+
+private const val TAG = "NoteEditorScreen"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,17 +55,6 @@ fun NoteEditorScreen(
         )
     }
 
-    if (showAiSheet) {
-        AiBottomSheet(
-            isProcessing = uiState.isAiProcessing,
-            summary = uiState.aiSummary,
-            onDismiss = { showAiSheet = false },
-            onSummarize = viewModel::summarize,
-            onSuggestTitle = viewModel::suggestTitle,
-            onCategorize = viewModel::categorize
-        )
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -88,7 +79,10 @@ fun NoteEditorScreen(
                             )
                         }
                     }
-                    IconButton(onClick = { showAiSheet = true }) {
+                    IconButton(onClick = {
+                        Log.d(TAG, "AI button tapped, body length=${uiState.body.length}")
+                        showAiSheet = true
+                    }) {
                         Icon(
                             Icons.Default.AutoAwesome,
                             contentDescription = "AI features"
@@ -167,6 +161,30 @@ fun NoteEditorScreen(
                 }
             }
         }
+
+        // ModalBottomSheet must be inside the Scaffold content lambda so it
+        // receives correct window insets and renders above the system bars.
+        if (showAiSheet) {
+            AiBottomSheet(
+                isProcessing = uiState.isAiProcessing,
+                summary = uiState.aiSummary,
+                errorMessage = uiState.aiError,
+                isBodyEmpty = uiState.body.isBlank(),
+                onDismiss = { showAiSheet = false },
+                onSummarize = {
+                    Log.d(TAG, "Summarize tapped")
+                    viewModel.summarize()
+                },
+                onSuggestTitle = {
+                    Log.d(TAG, "Suggest title tapped")
+                    viewModel.suggestTitle()
+                },
+                onCategorize = {
+                    Log.d(TAG, "Categorize tapped")
+                    viewModel.categorize()
+                }
+            )
+        }
     }
 }
 
@@ -175,12 +193,14 @@ fun NoteEditorScreen(
 private fun AiBottomSheet(
     isProcessing: Boolean,
     summary: String?,
+    errorMessage: String?,
+    isBodyEmpty: Boolean,
     onDismiss: () -> Unit,
     onSummarize: () -> Unit,
     onSuggestTitle: () -> Unit,
     onCategorize: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -189,17 +209,30 @@ private fun AiBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp)
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
         ) {
             Text(
                 text = "AI Features",
                 style = MaterialTheme.typography.titleLarge
             )
+
+            if (isBodyEmpty) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Write some content in your note first to use AI features.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                return@ModalBottomSheet
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             AiActionButton(
                 title = "Summarize",
-                description = "Generate a concise summary",
+                description = "Generate a 3-bullet summary of your note",
                 icon = Icons.Default.Summarize,
                 onClick = onSummarize,
                 enabled = !isProcessing
@@ -219,7 +252,7 @@ private fun AiBottomSheet(
 
             AiActionButton(
                 title = "Categorize",
-                description = "Auto-detect note category",
+                description = "Auto-detect note category (IDEA, TODO, etc.)",
                 icon = Icons.AutoMirrored.Filled.Label,
                 onClick = onCategorize,
                 enabled = !isProcessing
@@ -230,13 +263,30 @@ private fun AiBottomSheet(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Processing...",
+                    text = "Processing with Gemini Nano...",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            if (errorMessage != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = errorMessage,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
@@ -265,7 +315,8 @@ private fun AiActionButton(
             Icon(
                 imageVector = icon,
                 contentDescription = title,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = if (enabled) MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))

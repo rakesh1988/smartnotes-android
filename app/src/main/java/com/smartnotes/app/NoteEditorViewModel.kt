@@ -1,5 +1,6 @@
 package com.smartnotes.app
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,6 +12,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private const val TAG = "NoteEditorViewModel"
+
 data class NoteEditorUiState(
     val title: String = "",
     val body: String = "",
@@ -19,10 +22,14 @@ data class NoteEditorUiState(
     val noteId: Long? = null,
     val isSaving: Boolean = false,
     val isLoaded: Boolean = false,
+    // AI state
     val aiSummary: String? = null,
     val aiSuggestedTitle: String? = null,
     val aiCategory: String? = null,
-    val isAiProcessing: Boolean = false
+    val isAiProcessing: Boolean = false,
+    // null = not yet checked, true/false = result of checkFeatureStatus
+    val isAiAvailable: Boolean? = null,
+    val aiError: String? = null
 )
 
 @HiltViewModel
@@ -93,28 +100,59 @@ class NoteEditorViewModel @Inject constructor(
 
     fun summarize() {
         val body = _uiState.value.body
+        Log.d(TAG, "summarize() called, body blank=${body.isBlank()}")
         if (body.isBlank()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isAiProcessing = true, aiSummary = null) }
+            _uiState.update { it.copy(isAiProcessing = true, aiSummary = null, aiError = null) }
+            Log.d(TAG, "summarize() collecting flow")
             aiService.summarize(body).collect { result ->
-                _uiState.update { it.copy(aiSummary = result.text, isAiProcessing = false) }
+                Log.d(TAG, "summarize() result: text='${result.text}' available=${result.isAvailable} error=${result.errorMessage}")
+                when {
+                    !result.isAvailable -> _uiState.update {
+                        it.copy(isAiProcessing = false, isAiAvailable = false, aiError = result.errorMessage)
+                    }
+                    result.errorMessage != null -> _uiState.update {
+                        it.copy(isAiProcessing = false, aiError = result.errorMessage)
+                    }
+                    else -> _uiState.update {
+                        it.copy(
+                            // streaming: each emission is cumulative text, update in real-time
+                            aiSummary = result.text.takeIf { t -> t.isNotBlank() },
+                            isAiProcessing = false,
+                            isAiAvailable = true
+                        )
+                    }
+                }
             }
         }
     }
 
     fun suggestTitle() {
         val body = _uiState.value.body
+        Log.d(TAG, "suggestTitle() called, body blank=${body.isBlank()}")
         if (body.isBlank()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isAiProcessing = true, aiSuggestedTitle = null) }
+            _uiState.update { it.copy(isAiProcessing = true, aiSuggestedTitle = null, aiError = null) }
             aiService.generateTitle(body).collect { result ->
-                val suggested = result.text
-                _uiState.update {
-                    it.copy(
-                        aiSuggestedTitle = suggested,
-                        title = if (it.title.isBlank()) suggested else it.title,
-                        isAiProcessing = false
-                    )
+                when {
+                    !result.isAvailable -> _uiState.update {
+                        it.copy(isAiProcessing = false, isAiAvailable = false, aiError = result.errorMessage)
+                    }
+                    result.errorMessage != null -> _uiState.update {
+                        it.copy(isAiProcessing = false, aiError = result.errorMessage)
+                    }
+                    else -> {
+                        val suggested = result.text
+                        _uiState.update {
+                            it.copy(
+                                aiSuggestedTitle = suggested,
+                                // auto-fill title if still empty
+                                title = if (it.title.isBlank()) suggested else it.title,
+                                isAiProcessing = false,
+                                isAiAvailable = true
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -122,16 +160,26 @@ class NoteEditorViewModel @Inject constructor(
 
     fun categorize() {
         val body = _uiState.value.body
+        Log.d(TAG, "categorize() called, body blank=${body.isBlank()}")
         if (body.isBlank()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isAiProcessing = true, aiCategory = null) }
+            _uiState.update { it.copy(isAiProcessing = true, aiCategory = null, aiError = null) }
             aiService.categorize(body).collect { result ->
-                _uiState.update {
-                    it.copy(
-                        aiCategory = result.text,
-                        category = result.text.ifBlank { "OTHER" },
-                        isAiProcessing = false
-                    )
+                when {
+                    !result.isAvailable -> _uiState.update {
+                        it.copy(isAiProcessing = false, isAiAvailable = false, aiError = result.errorMessage)
+                    }
+                    result.errorMessage != null -> _uiState.update {
+                        it.copy(isAiProcessing = false, aiError = result.errorMessage)
+                    }
+                    else -> _uiState.update {
+                        it.copy(
+                            aiCategory = result.text,
+                            category = result.text.ifBlank { "OTHER" },
+                            isAiProcessing = false,
+                            isAiAvailable = true
+                        )
+                    }
                 }
             }
         }
@@ -147,7 +195,12 @@ class NoteEditorViewModel @Inject constructor(
 
     fun clearAiState() {
         _uiState.update {
-            it.copy(aiSummary = null, aiSuggestedTitle = null, aiCategory = null)
+            it.copy(aiSummary = null, aiSuggestedTitle = null, aiCategory = null, aiError = null)
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        aiService.close()
     }
 }

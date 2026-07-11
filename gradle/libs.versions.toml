@@ -10,7 +10,8 @@ core-ktx = "1.15.0"
 lifecycle = "2.8.7"
 navigation-compose = "2.8.5"
 coroutines = "1.9.0"
-aicore = "0.0.1-exp02"
+mlkit-genai-summarization = "1.0.0-beta1"
+mlkit-genai-prompt = "1.0.0-beta2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -34,10 +35,12 @@ room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 
-# On-device AI: Gemini Nano via Android AICore (no API key, model is system-managed)
-aicore = { group = "com.google.ai.edge.aicore", name = "aicore", version.ref = "aicore" }
+# On-device AI: ML Kit GenAI APIs (built on AICore + Gemini Nano, no API key, model is system-managed)
+mlkit-genai-summarization = { group = "com.google.mlkit", name = "genai-summarization", version.ref = "mlkit-genai-summarization" }
+mlkit-genai-prompt = { group = "com.google.mlkit", name = "genai-prompt", version.ref = "mlkit-genai-prompt" }
 
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-guava = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-guava", version.ref = "coroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

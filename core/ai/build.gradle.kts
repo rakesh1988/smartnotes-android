@@ -33,7 +33,9 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
 
-    implementation(libs.aicore)
+    implementation(libs.mlkit.genai.summarization)
+    implementation(libs.mlkit.genai.prompt)
 
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.guava)
 }
